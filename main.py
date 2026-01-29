@@ -1,3 +1,4 @@
+import os
 # =========================
 # Telegram Auto Post Bot
 # FINAL - Single File
@@ -14,12 +15,10 @@ from pyrogram.types import ReplyKeyboardMarkup
 # =========================
 # CONFIG
 # =========================
-API_ID = 36282843
-API_HASH = "23cbadebadb91a0d5883ec428b8a174c"
-BOT_TOKEN = "7816845254:AAE_8CxPYPW5koRWGEBDry9jYdwm5sLdrf4"
-
-ADMIN_USERNAME = "mahim_2422"
-ADMIN_IDS = {7176443600}  # your Telegram user id(s)
+API_ID = int(os.environ.get("36282843"))
+API_HASH = os.environ.get("23cbadebadb91a0d5883ec428b8a174c")
+BOT_TOKEN = os.environ.get("7816845254:AAE_8CxPYPW5koRWGEBDry9jYdwm5sLdrf4")
+ADMIN_IDS = {int(os.environ.get("7176443600"))}
 
 DB_NAME = "bot.db"
 
