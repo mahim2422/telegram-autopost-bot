@@ -1,9 +1,9 @@
-import os
 # =========================
 # Telegram Auto Post Bot
 # FINAL - Single File
 # =========================
 
+import os
 import asyncio
 import sqlite3
 from datetime import datetime, timedelta
@@ -13,12 +13,14 @@ from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup
 
 # =========================
-# CONFIG
+# CONFIG (ENV BASED - SAFE)
 # =========================
-API_ID = int(os.environ.get("36282843"))
-API_HASH = os.environ.get("23cbadebadb91a0d5883ec428b8a174c")
-BOT_TOKEN = os.environ.get("7816845254:AAE_8CxPYPW5koRWGEBDry9jYdwm5sLdrf4")
-ADMIN_IDS = {int(os.environ.get("7176443600"))}
+API_ID = int(os.environ["36282843"])
+API_HASH = os.environ["23cbadebadb91a0d5883ec428b8a174c"]
+BOT_TOKEN = os.environ["7816845254:AAE_8CxPYPW5koRWGEBDry9jYdwm5sLdrf4"]
+
+ADMIN_USERNAME = "mahim_2422"
+ADMIN_IDS = {int(os.environ["7176443600"])}
 
 DB_NAME = "bot.db"
 
@@ -147,7 +149,6 @@ async def start(_, m):
 @app.on_message(filters.text & filters.regex("^➕ Add Post$"))
 async def add_post(_, m):
     await m.reply("Send me the post text.")
-    app.set_parse_mode("markdown")
 
 
 @app.on_message(filters.text & ~filters.command("start"))
@@ -157,7 +158,6 @@ async def handle_text(_, m):
     if not is_active(uid) and uid not in ADMIN_IDS:
         return
 
-    # save post
     if m.reply_to_message and "Send me the post text." in m.reply_to_message.text:
         cur.execute(
             "INSERT INTO posts (user_id, text) VALUES (?, ?)",
@@ -256,6 +256,7 @@ async def main():
     await app.start()
     print("Bot is running...")
     await asyncio.Event().wait()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
