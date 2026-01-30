@@ -1,7 +1,3 @@
 pyrogram==2.0.106
-APScheduler==3.10.4
-pyaes
-pysocks
-pytz
-tzlocal
-six
+tgcrypto
+aiohttp
