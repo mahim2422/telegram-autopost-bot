@@ -14,14 +14,14 @@ from pyrogram.types import ReplyKeyboardMarkup
 
 # =========================
 # CONFIG (ENV BASED - SAFE)
-# =========================
-API_ID = int(os.environ["36282843"])
-API_HASH = os.environ["23cbadebadb91a0d5883ec428b8a174c"]
-BOT_TOKEN = os.environ["7816845254:AAE_8CxPYPW5koRWGEBDry9jYdwm5sLdrf4"]
+# ========================
+
+API_ID = int(os.environ["API_ID"])
+API_HASH = os.environ["API_HASH"]
+BOT_TOKEN = os.environ["BOT_TOKEN"]
 
 ADMIN_USERNAME = "mahim_2422"
-ADMIN_IDS = {int(os.environ["7176443600"])}
-
+ADMIN_IDS = {int(os.environ["ADMIN_ID"])}
 DB_NAME = "bot.db"
 
 # =========================
