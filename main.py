@@ -7,7 +7,7 @@ import os
 import asyncio
 import sqlite3
 from datetime import datetime, timedelta
-
+from pyrogram import idle
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from pyrogram import Client, filters
@@ -318,7 +318,6 @@ async def main():
     load_schedules()
     await app.start()
     print("Bot is running...")
-    await asyncio.Event().wait()
-
+    await idle()
 if __name__ == "__main__":
     asyncio.run(main())
