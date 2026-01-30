@@ -1,46 +1,42 @@
-# =========================
-# Telegram Auto Schedule Bot
-# FINAL FULL VERSION
-# =========================
+# =========================================================
+# Telegram Auto Post Scheduler Bot
+# FINAL – ALL IN ONE – Railway Stable (Webhook)
+# =========================================================
 
 import os
 import asyncio
 import sqlite3
 from datetime import datetime, timedelta
-from pyrogram import idle
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from aiohttp import web
 
 from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup
 
-# =========================
+# =========================================================
 # ENV CONFIG
-# =========================
+# =========================================================
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]
+ADMIN_ID = int(os.environ["ADMIN_ID"])
 
-ADMIN_IDS = {int(os.environ["ADMIN_ID"])}
-ADMIN_USERNAME = "mahim_2422"
+PORT = int(os.environ.get("PORT", 8080))
 
-DB_NAME = "bot.db"
-
-# =========================
-# APP INIT
-# =========================
+# =========================================================
+# PYROGRAM CLIENT
+# =========================================================
 app = Client(
-    "schedule_bot",
+    "schedule_poster",
     api_id=API_ID,
     api_hash=API_HASH,
-    bot_token=BOT_TOKEN
+    bot_token=BOT_TOKEN,
+    workers=1
 )
 
-scheduler = AsyncIOScheduler()
-
-# =========================
+# =========================================================
 # DATABASE
-# =========================
-db = sqlite3.connect(DB_NAME, check_same_thread=False)
+# =========================================================
+db = sqlite3.connect("bot.db", check_same_thread=False)
 cur = db.cursor()
 
 cur.execute("""
@@ -65,126 +61,106 @@ CREATE TABLE IF NOT EXISTS schedules (
     user_id INTEGER,
     post_id INTEGER,
     chat_ids TEXT,
+    schedule_type TEXT,
     run_at TEXT
 )
 """)
 
 db.commit()
 
-# =========================
+# =========================================================
 # KEYBOARDS
-# =========================
+# =========================================================
 USER_MENU = ReplyKeyboardMarkup(
     [
-        ["➕ Add Post", "📩 My Posts"],
-        ["⏰ Schedule Post", "📋 My Schedules"],
-        ["✏️ Edit Schedule", "❌ Delete Schedule"],
-        ["🗑️ Delete Post", "🚀 Send Now"],
-        ["📊 Status"]
+        ["➕ Add Post", "📄 My Posts"],
+        ["⏰ Add Schedule", "📆 My Schedules"],
+        ["🗑 Delete Schedule"]
     ],
     resize_keyboard=True
 )
 
 ADMIN_MENU = ReplyKeyboardMarkup(
     [
-        ["➕ Add User", "⏳ Extend Plan"],
-        ["⛔ Ban User", "📋 User List"]
+        ["➕ Add User", "📋 User List"]
     ],
     resize_keyboard=True
 )
 
-# =========================
+# =========================================================
 # HELPERS
-# =========================
+# =========================================================
 def is_active(uid):
     row = cur.execute(
         "SELECT expire_at, status FROM users WHERE user_id=?",
         (uid,)
     ).fetchone()
-
     if not row:
         return False
-
     expire, status = row
-    return status == "active" and datetime.fromisoformat(expire) > datetime.utcnow()
+    if status != "active":
+        return False
+    return datetime.fromisoformat(expire) > datetime.utcnow()
 
+def add_user(uid, days):
+    expire = datetime.utcnow() + timedelta(days=days)
+    cur.execute(
+        "REPLACE INTO users VALUES (?, ?, ?)",
+        (uid, expire.isoformat(), "active")
+    )
+    db.commit()
 
-def schedule_limit(uid):
-    # simple plan logic
-    if uid in ADMIN_IDS:
-        return 999
-    return 5
-
-
-async def run_post(post_id, chat_ids):
-    row = cur.execute("SELECT text FROM posts WHERE id=?", (post_id,)).fetchone()
-    if not row:
-        return
-
-    text = row[0]
-    for cid in chat_ids.split(","):
-        try:
-            await app.send_message(int(cid), text)
-            await asyncio.sleep(1)
-        except Exception as e:
-            print("Send error:", e)
-
-
-def load_schedules():
-    rows = cur.execute(
-        "SELECT id, post_id, chat_ids, run_at FROM schedules"
-    ).fetchall()
-
-    for sid, pid, chats, run_at in rows:
-        scheduler.add_job(
-            run_post,
-            "date",
-            run_date=datetime.fromisoformat(run_at),
-            args=[pid, chats],
-            id=str(sid),
-            replace_existing=True
-        )
-
-# =========================
+# =========================================================
 # START
-# =========================
+# =========================================================
 @app.on_message(filters.command("start"))
 async def start(_, m):
     uid = m.from_user.id
 
-    if uid not in ADMIN_IDS and not is_active(uid):
+    if uid == ADMIN_ID:
         await m.reply(
-            "❌ Access Denied\n\n"
-            f"Contact admin: @{ADMIN_USERNAME}"
+            f"👑 Admin Panel\nID: `{uid}`",
+            reply_markup=ADMIN_MENU
         )
         return
 
-    if uid in ADMIN_IDS:
-        await m.reply("👑 Admin Panel", reply_markup=ADMIN_MENU)
-    else:
-        await m.reply("✅ Bot is alive!", reply_markup=USER_MENU)
+    if not is_active(uid):
+        await m.reply(
+            "❌ Access Denied\nContact admin for access."
+        )
+        return
 
-# =========================
-# USER: ADD POST
-# =========================
+    await m.reply(
+        f"✅ Bot Active\nYour ID: `{uid}`",
+        reply_markup=USER_MENU
+    )
+
+# =========================================================
+# ADD POST
+# =========================================================
 @app.on_message(filters.regex("^➕ Add Post$"))
-async def add_post(_, m):
+async def ask_post(_, m):
     await m.reply("Send post text now.")
 
-@app.on_message(filters.reply & filters.text)
+@app.on_message(filters.text & ~filters.command("start"))
 async def save_post(_, m):
-    if "Send post text" in m.reply_to_message.text:
+    uid = m.from_user.id
+
+    if uid != ADMIN_ID and not is_active(uid):
+        return
+
+    if m.reply_to_message and "Send post text" in m.reply_to_message.text:
         cur.execute(
             "INSERT INTO posts (user_id, text) VALUES (?, ?)",
-            (m.from_user.id, m.text)
+            (uid, m.text)
         )
         db.commit()
-        await m.reply("✅ Post saved.", reply_markup=USER_MENU)
+        await m.reply("✅ Post saved", reply_markup=USER_MENU)
 
-# =========================
-# USER: MY POSTS
-# =========================
-@app.on_message(filters.regex("^📩 My Posts$"))
+# =========================================================
+# LIST POSTS
+# =========================================================
+@app.on_message(filters.regex("^📄 My Posts$"))
 async def my_posts(_, m):
     rows = cur.execute(
         "SELECT id, text FROM posts WHERE user_id=?",
@@ -195,68 +171,53 @@ async def my_posts(_, m):
         await m.reply("No posts found.")
         return
 
-    msg = "📩 Your Posts:\n\n"
-    for i, t in rows:
-        msg += f"{i}: {t[:40]}...\n"
+    msg = "📄 Your Posts:\n\n"
+    for pid, text in rows:
+        msg += f"{pid} → {text[:40]}...\n"
 
     await m.reply(msg)
 
-# =========================
-# USER: SCHEDULE POST
-# =========================
-@app.on_message(filters.regex("^⏰ Schedule Post$"))
-async def schedule_post(_, m):
-    uid = m.from_user.id
-
-    count = cur.execute(
-        "SELECT COUNT(*) FROM schedules WHERE user_id=?",
-        (uid,)
-    ).fetchone()[0]
-
-    if count >= schedule_limit(uid):
-        await m.reply("❌ Schedule limit reached.")
-        return
-
+# =========================================================
+# ADD SCHEDULE
+# =========================================================
+@app.on_message(filters.regex("^⏰ Add Schedule$"))
+async def schedule_help(_, m):
     await m.reply(
-        "Format:\n"
-        "`POST_ID | chat_id1,chat_id2 | YYYY-MM-DD HH:MM`\n"
-        "Time must be UTC"
+        "Format:\n\n"
+        "`POST_ID | chat_ids | once/daily/weekly | YYYY-MM-DD HH:MM`\n\n"
+        "Example:\n"
+        "`1 | -100xxxx | daily | 2026-02-01 10:00`"
     )
 
 @app.on_message(filters.text & filters.regex(r"\|"))
 async def save_schedule(_, m):
+    uid = m.from_user.id
+    if uid != ADMIN_ID and not is_active(uid):
+        return
+
     try:
-        pid, chats, time_str = [x.strip() for x in m.text.split("|")]
-        run_at = datetime.fromisoformat(time_str)
+        post_id, chats, stype, run_at = [x.strip() for x in m.text.split("|")]
+        datetime.fromisoformat(run_at)
 
-        cur.execute(
-            "INSERT INTO schedules (user_id, post_id, chat_ids, run_at) VALUES (?, ?, ?, ?)",
-            (m.from_user.id, int(pid), chats, run_at.isoformat())
-        )
+        cur.execute("""
+        INSERT INTO schedules 
+        (user_id, post_id, chat_ids, schedule_type, run_at)
+        VALUES (?, ?, ?, ?, ?)
+        """, (uid, int(post_id), chats, stype, run_at))
+
         db.commit()
+        await m.reply("✅ Schedule added")
 
-        sid = cur.lastrowid
+    except:
+        await m.reply("❌ Invalid format")
 
-        scheduler.add_job(
-            run_post,
-            "date",
-            run_date=run_at,
-            args=[int(pid), chats],
-            id=str(sid)
-        )
-
-        await m.reply("✅ Scheduled successfully.", reply_markup=USER_MENU)
-
-    except Exception as e:
-        await m.reply(f"❌ Error: {e}")
-
-# =========================
-# USER: MY SCHEDULES
-# =========================
-@app.on_message(filters.regex("^📋 My Schedules$"))
-async def my_schedules(_, m):
+# =========================================================
+# LIST SCHEDULES
+# =========================================================
+@app.on_message(filters.regex("^📆 My Schedules$"))
+async def list_schedules(_, m):
     rows = cur.execute(
-        "SELECT id, post_id, run_at FROM schedules WHERE user_id=?",
+        "SELECT id, post_id, schedule_type, run_at FROM schedules WHERE user_id=?",
         (m.from_user.id,)
     ).fetchall()
 
@@ -264,60 +225,103 @@ async def my_schedules(_, m):
         await m.reply("No schedules.")
         return
 
-    msg = "⏰ Your Schedules:\n\n"
-    for sid, pid, t in rows:
-        msg += f"ID {sid} | Post {pid} | {t}\n"
+    msg = "📆 Schedules:\n\n"
+    for sid, pid, st, rt in rows:
+        msg += f"{sid} → Post {pid} | {st} | {rt}\n"
 
     await m.reply(msg)
 
-# =========================
-# USER: DELETE SCHEDULE
-# =========================
-@app.on_message(filters.regex("^❌ Delete Schedule$"))
+# =========================================================
+# DELETE SCHEDULE
+# =========================================================
+@app.on_message(filters.regex("^🗑 Delete Schedule$"))
+async def del_help(_, m):
+    await m.reply("Send Schedule ID to delete")
+
+@app.on_message(filters.text & filters.regex(r"^\d+$"))
 async def delete_schedule(_, m):
-    await m.reply("Send Schedule ID to delete.")
-
-@app.on_message(filters.text & filters.regex("^[0-9]+$"))
-async def confirm_delete(_, m):
-    sid = m.text
-    scheduler.remove_job(sid)
-
-    cur.execute("DELETE FROM schedules WHERE id=?", (sid,))
-    db.commit()
-
-    await m.reply("✅ Schedule deleted.", reply_markup=USER_MENU)
-
-# =========================
-# ADMIN
-# =========================
-@app.on_message(filters.regex("^➕ Add User$"))
-async def admin_add(_, m):
-    await m.reply("Send: `user_id days`")
-
-@app.on_message(filters.text & filters.regex(" "))
-async def admin_save(_, m):
-    if m.from_user.id not in ADMIN_IDS:
-        return
-
-    uid, days = m.text.split()
-    expire = datetime.utcnow() + timedelta(days=int(days))
-
+    sid = int(m.text)
     cur.execute(
-        "REPLACE INTO users VALUES (?, ?, ?)",
-        (int(uid), expire.isoformat(), "active")
+        "DELETE FROM schedules WHERE id=? AND user_id=?",
+        (sid, m.from_user.id)
     )
     db.commit()
+    await m.reply("🗑 Schedule deleted")
 
-    await m.reply("✅ User added.")
+# =========================================================
+# SCHEDULER LOOP
+# =========================================================
+async def scheduler_loop():
+    while True:
+        now = datetime.utcnow()
 
-# =========================
-# RUN
-# =========================
+        rows = cur.execute(
+            "SELECT id, post_id, chat_ids, schedule_type, run_at FROM schedules"
+        ).fetchall()
+
+        for sid, pid, chats, stype, run_at in rows:
+            run_time = datetime.fromisoformat(run_at)
+            if now >= run_time:
+                text = cur.execute(
+                    "SELECT text FROM posts WHERE id=?",
+                    (pid,)
+                ).fetchone()
+
+                if text:
+                    for chat in chats.split(","):
+                        try:
+                            await app.send_message(int(chat), text[0])
+                            await asyncio.sleep(1)
+                        except:
+                            pass
+
+                if stype == "once":
+                    cur.execute("DELETE FROM schedules WHERE id=?", (sid,))
+                elif stype == "daily":
+                    cur.execute(
+                        "UPDATE schedules SET run_at=? WHERE id=?",
+                        ((run_time + timedelta(days=1)).isoformat(), sid)
+                    )
+                elif stype == "weekly":
+                    cur.execute(
+                        "UPDATE schedules SET run_at=? WHERE id=?",
+                        ((run_time + timedelta(days=7)).isoformat(), sid)
+                    )
+                db.commit()
+
+        await asyncio.sleep(30)
+
+# =========================================================
+# WEBHOOK
+# =========================================================
+async def webhook_handler(request):
+    data = await request.json()
+    await app.process_update(data)
+    return web.Response(text="ok")
+
+# =========================================================
+# MAIN
+# =========================================================
 async def main():
-    scheduler.start()
-    load_schedules()
     await app.start()
-    print("Bot is running...")
-    await idle()
+
+    railway_url = os.environ["RAILWAY_STATIC_URL"]
+    webhook_url = f"https://{railway_url}/webhook"
+    await app.bot.set_webhook(webhook_url)
+
+    web_app = web.Application()
+    web_app.router.add_post("/webhook", webhook_handler)
+
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+
+    asyncio.create_task(scheduler_loop())
+
+    print("🚀 FULL BOT RUNNING (Railway Stable)")
+    while True:
+        await asyncio.sleep(3600)
+
 if __name__ == "__main__":
     asyncio.run(main())
